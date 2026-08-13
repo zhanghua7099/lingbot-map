@@ -49,10 +49,10 @@ def main():
                               "just saves bandwidth/CPU.")
     parser.add_argument("--jpeg_quality", type=int, default=85)
     parser.add_argument("--flip", action="store_true", help="Mirror the color image horizontally.")
-    parser.add_argument("--preview", action=argparse.BooleanOptionalAction, default=True,
+    parser.add_argument("--preview", action="store_true", default=True,
                          help="Show a local window with the color feed + connection status "
                               "(on by default; --no-preview for a headless client).")
-    parser.add_argument("--show_depth", action=argparse.BooleanOptionalAction, default=True,
+    parser.add_argument("--show_depth", action="store_true", default=True,
                          help="Also show RealSense's own colorized depth next to the color preview "
                               "(sanity check only — depth is never sent to the server). Ignored if "
                               "--no-preview.")

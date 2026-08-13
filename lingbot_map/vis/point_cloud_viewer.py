@@ -1175,6 +1175,12 @@ class PointCloudViewer:
             gui_playing = self.server.gui.add_checkbox("Playing", True)
             gui_framerate = self.server.gui.add_slider("FPS", min=1, max=60, step=0.1, initial_value=20)
             gui_framerate_options = self.server.gui.add_button_group("FPS options", ("10", "20", "30", "60"))
+            self.gui_follow_camera = self.server.gui.add_checkbox(
+                "Follow Camera",
+                initial_value=False,
+                hint="Lock the viewer camera to the reconstructed camera pose as frames advance.",
+            )
+            self.gui_follow_camera.disabled = self.cam_dict is None
 
         @gui_next_frame.on_click
         def _(_) -> None:
@@ -1209,6 +1215,11 @@ class PointCloudViewer:
                 self.frame_nodes[current_timestep].visible = True
                 self.frame_nodes[prev_timestep].visible = False
             self.server.flush()
+
+            if self.gui_follow_camera.value:
+                # Instant (non-smoothed) so consecutive frame updates don't spawn
+                # overlapping interpolation threads while playing back quickly.
+                self._move_to_camera(current_timestep, smooth=False)
 
             prev_timestep = current_timestep
 
