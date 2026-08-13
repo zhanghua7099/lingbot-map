@@ -568,6 +568,7 @@ class PointCloudViewer:
 
         self.pc_handles = []
         self.cam_handles = []
+        self.cam_axes_handles = []
 
         @self.psize_slider.on_update
         def _(_) -> None:
@@ -591,6 +592,8 @@ class PointCloudViewer:
                 self._regenerate_cameras()
             else:
                 for handle in self.cam_handles:
+                    handle.visible = False
+                for handle in self.cam_axes_handles:
                     handle.visible = False
 
         @self.vis_threshold_slider.on_update
@@ -646,6 +649,13 @@ class PointCloudViewer:
             except (KeyError, AttributeError):
                 pass
         self.cam_handles.clear()
+
+        for handle in self.cam_axes_handles:
+            try:
+                handle.remove()
+            except (KeyError, AttributeError):
+                pass
+        self.cam_axes_handles.clear()
 
         if self.show_camera:
             downsample_factor = int(self.camera_downsample_slider.value)
@@ -1235,7 +1245,7 @@ class PointCloudViewer:
         camera_color = self.camera_colors[step_index]
         camera_color_rgb = tuple((camera_color[:3] * 255).astype(int))
 
-        self.server.scene.add_frame(
+        axes_handle = self.server.scene.add_frame(
             f"/frames/{step}/camera_frame",
             wxyz=q,
             position=t,
@@ -1243,6 +1253,7 @@ class PointCloudViewer:
             axes_radius=0.002,
             origin_radius=0.002,
         )
+        self.cam_axes_handles.append(axes_handle)
 
         frustum_handle = self.server.scene.add_camera_frustum(
             name=f"/frames/{step}/camera",
