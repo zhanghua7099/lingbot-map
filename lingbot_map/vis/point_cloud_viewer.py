@@ -509,6 +509,38 @@ class PointCloudViewer:
         def _(_) -> None:
             self._export_glb()
 
+        # Point cloud export controls (PLY/PCD) — points only, no camera
+        # frustums/trajectory, so it opens directly in CloudCompare/MeshLab/
+        # Open3D/PCL instead of needing a GLB-aware viewer.
+        with self.server.gui.add_folder("Export Point Cloud (PLY/PCD)"):
+            self.pc_export_format_dropdown = self.server.gui.add_dropdown(
+                "Format",
+                options=["PLY", "PCD"],
+                initial_value="PLY",
+                hint="PLY: written via trimesh, broadly supported (MeshLab/CloudCompare/Open3D/Blender). "
+                     "PCD: ASCII v0.7 with PCL-style packed RGB, for PCL/Open3D/CloudCompare.",
+            )
+            self.pc_export_path = self.server.gui.add_text(
+                "Output Path", initial_value="export.ply"
+            )
+            self.pc_export_button = self.server.gui.add_button(
+                "Export Point Cloud",
+                hint="Export current filtered points (no cameras/trajectory) in the selected format.",
+            )
+            self.pc_export_status = self.server.gui.add_text("Status", initial_value="Ready")
+
+        @self.pc_export_format_dropdown.on_update
+        def _(_) -> None:
+            fmt = self.pc_export_format_dropdown.value
+            default_name = "export.ply" if fmt == "PLY" else "export.pcd"
+            # Only auto-swap the extension if the path is still one of our defaults.
+            if self.pc_export_path.value in ("export.ply", "export.pcd"):
+                self.pc_export_path.value = default_name
+
+        @self.pc_export_button.on_click
+        def _(_) -> None:
+            self._export_point_cloud()
+
         # Video saving controls
         with self.server.gui.add_folder("Video Saving"):
             self.save_video_button = self.server.gui.add_button("Save Video", disabled=False)
@@ -621,18 +653,12 @@ class PointCloudViewer:
                 if i % downsample_factor == 0:
                     self.add_camera(step)
 
-    def _export_glb(self):
-        """Export current filtered point clouds and cameras as a GLB file."""
-        try:
-            import trimesh
-        except ImportError:
-            self.glb_status.value = "Error: pip install trimesh"
-            return
+    def _collect_filtered_points(self) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """Gather all currently visible, filtered points/colors (uint8) across steps.
 
-        self.glb_status.value = "Collecting points..."
-        print("Exporting GLB...")
-
-        # Collect all currently visible, filtered points and colors
+        Shared by _export_glb and _export_point_cloud so both exports see the
+        same confidence-filtered, downsampled points the viewer is showing.
+        """
         all_points = []
         all_colors = []
         for step in self.all_steps:
@@ -652,11 +678,86 @@ class PointCloudViewer:
                 all_colors.append(cols)
 
         if not all_points:
-            self.glb_status.value = "Error: no points to export"
+            return None, None
+        return np.concatenate(all_points, axis=0), np.concatenate(all_colors, axis=0)
+
+    def _export_point_cloud(self):
+        """Export current filtered points as PLY or PCD — no cameras/trajectory."""
+        self.pc_export_status.value = "Collecting points..."
+        print("Exporting point cloud...")
+
+        vertices, colors_rgb = self._collect_filtered_points()
+        if vertices is None:
+            self.pc_export_status.value = "Error: no points to export"
             return
 
-        vertices = np.concatenate(all_points, axis=0)
-        colors_rgb = np.concatenate(all_colors, axis=0)
+        output_path = self.pc_export_path.value
+        fmt = self.pc_export_format_dropdown.value
+
+        try:
+            if fmt == "PLY":
+                import trimesh
+                trimesh.PointCloud(vertices=vertices, colors=colors_rgb).export(output_path)
+            else:
+                self._write_pcd(output_path, vertices, colors_rgb)
+        except ImportError:
+            self.pc_export_status.value = "Error: pip install trimesh"
+            return
+        except Exception as e:
+            self.pc_export_status.value = f"Error: {e}"
+            print(f"Point cloud export error: {e}")
+            return
+
+        self.pc_export_status.value = f"Saved: {output_path} ({len(vertices):,} points)"
+        print(f"Point cloud exported to {output_path} ({len(vertices):,} points, format={fmt})")
+
+    @staticmethod
+    def _write_pcd(output_path: str, vertices: np.ndarray, colors_rgb: np.ndarray):
+        """Write an ASCII PCD v0.7 file with PCL-style packed-float RGB
+        (FIELDS x y z rgb) — the pcl::PointXYZRGB layout that PCL, Open3D,
+        and CloudCompare all read directly.
+        """
+        n = len(vertices)
+        rgb_uint32 = (
+            (colors_rgb[:, 0].astype(np.uint32) << 16)
+            | (colors_rgb[:, 1].astype(np.uint32) << 8)
+            | colors_rgb[:, 2].astype(np.uint32)
+        )
+        rgb_float = rgb_uint32.view(np.float32)
+        data = np.column_stack([vertices.astype(np.float32), rgb_float])
+
+        header = (
+            "# .PCD v0.7 - Point Cloud Data file format\n"
+            "VERSION 0.7\n"
+            "FIELDS x y z rgb\n"
+            "SIZE 4 4 4 4\n"
+            "TYPE F F F F\n"
+            "COUNT 1 1 1 1\n"
+            f"WIDTH {n}\n"
+            "HEIGHT 1\n"
+            "VIEWPOINT 0 0 0 1 0 0 0\n"
+            f"POINTS {n}\n"
+            "DATA ascii\n"
+        )
+        with open(output_path, "w") as f:
+            f.write(header)
+            np.savetxt(f, data, fmt="%.6f %.6f %.6f %.10g")
+
+    def _export_glb(self):
+        """Export current filtered point clouds and cameras as a GLB file."""
+        try:
+            import trimesh
+        except ImportError:
+            self.glb_status.value = "Error: pip install trimesh"
+            return
+
+        self.glb_status.value = "Collecting points..."
+        print("Exporting GLB...")
+
+        vertices, colors_rgb = self._collect_filtered_points()
+        if vertices is None:
+            self.glb_status.value = "Error: no points to export"
+            return
 
         # --- Color enhancement ---
         colors_float = colors_rgb.astype(np.float32) / 255.0
