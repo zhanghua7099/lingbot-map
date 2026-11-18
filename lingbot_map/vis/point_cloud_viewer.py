@@ -65,6 +65,7 @@ class PointCloudViewer:
         use_point_map: Use point map instead of depth-based points
         mask_sky: Apply sky segmentation
         image_folder: Path to image folder (for sky segmentation)
+        skyseg_model_path: Path to the sky segmentation ONNX model.
     """
 
     def __init__(
@@ -92,6 +93,7 @@ class PointCloudViewer:
         sky_mask_dir: Optional[str] = None,
         sky_mask_visualization_dir: Optional[str] = None,
         depth_stride: int = 1,
+        skyseg_model_path: str = "skyseg.onnx",
     ):
         self.model = model
         self.size = size
@@ -108,6 +110,7 @@ class PointCloudViewer:
         if pred_dict is not None:
             pc_list, color_list, conf_list, cam_dict = self._process_pred_dict(
                 pred_dict, use_point_map, mask_sky, image_folder,
+                skyseg_model_path=skyseg_model_path,
                 sky_mask_dir=sky_mask_dir,
                 sky_mask_visualization_dir=sky_mask_visualization_dir,
                 depth_stride=depth_stride,
@@ -140,6 +143,7 @@ class PointCloudViewer:
         sky_mask_dir: Optional[str] = None,
         sky_mask_visualization_dir: Optional[str] = None,
         depth_stride: int = 1,
+        skyseg_model_path: str = "skyseg.onnx",
     ) -> Tuple[List, List, List, Dict]:
         """Process prediction dictionary to extract visualization data.
 
@@ -153,6 +157,7 @@ class PointCloudViewer:
             depth_stride: Only project depth to point cloud every N frames.
                 Frames not projected will have empty point clouds but still
                 show camera frustums and images. 1 = every frame (default).
+            skyseg_model_path: Path to the sky segmentation ONNX model.
         """
         images = pred_dict["images"]  # (S, 3, H, W)
 
@@ -174,6 +179,7 @@ class PointCloudViewer:
         if mask_sky:
             conf = apply_sky_segmentation(
                 conf, image_folder=image_folder, images=images,
+                skyseg_model_path=skyseg_model_path,
                 sky_mask_dir=sky_mask_dir,
                 sky_mask_visualization_dir=sky_mask_visualization_dir,
             )
